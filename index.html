@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Corte PVC/PPR - Pro CAD Visual</title>
+    <style>
+        :root {
+            --primary: #0284c7;
+            --primary-dark: #0369a1;
+            --background: #f1f5f9;
+            --surface: #ffffff;
+            --text: #0f172a;
+            --border: #cbd5e1;
+            --muted: #64748b;
+            --cad-bg: #0f172a; 
+            --cad-line: #38bdf8; 
+            --cad-axis: #f472b6;      /* Distancia Ejes (medida total) */
+            --cad-eje-borde: #fbbf24; /* Medida Eje a Borde (dentro del accesorio) */
+            --cad-perdida: #fb7185;   /* Distancia perdida en el fondo (descuento) */
+            --cad-corte: #4ade80;     /* Largo del tubo a cortar (corte real) */
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--background);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+        }
+
+        /* Navegación por pestañas */
+        .tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+        .tab-btn {
+            flex: 1; background: #e2e8f0; color: #475569; border: none; padding: 14px;
+            border-radius: 8px 8px 0 0; font-weight: bold; font-size: 1rem; cursor: pointer; transition: all 0.2s;
+        }
+        .tab-btn.active { background: var(--primary); color: white; }
+        .tab-btn:hover:not(.active) { background: #cbd5e1; }
+
+        /* Vistas */
+        .view-section {
+            display: none; background: var(--surface); padding: 24px;
+            border-radius: 0 0 12px 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .view-section.active { display: block; }
+
+        h2 { margin-top: 0; font-size: 1.25rem; border-bottom: 2px solid var(--border); padding-bottom: 10px; color: #0f172a; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.85rem; color: #334155; }
+        input, select { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; font-size: 0.95rem; }
+        .row { display: flex; gap: 12px; }
+        .row .form-group { flex: 1; margin-bottom: 8px; }
+
+        .grid-3 {
+            display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+            background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 16px;
+        }
+        .grid-col { display: flex; flex-direction: column; gap: 8px; }
+
+        button.action-btn {
+            background-color: var(--primary); color: white; border: none; padding: 12px 20px;
+            border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; font-size: 1rem; transition: background 0.2s;
+        }
+        button.action-btn:hover { background-color: var(--primary-dark); }
+        .btn-dark { background-color: #0f172a; }
+        .btn-dark:hover { background-color: #1e293b; }
+
+        .saved-pipes { font-size: 0.85rem; color: var(--muted); margin-top: 16px; line-height: 1.5; }
+        .info-text { font-size: 0.8rem; color: var(--muted); margin-top: -4px; margin-bottom: 12px; display: block; }
+
+        /* ======== VISUALIZADOR CAD (responsive, basado en SVG) ======== */
+        .cad-viewer {
+            display: none;
+            background-color: var(--cad-bg);
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+            border-radius: 8px;
+            padding: 20px 16px;
+            margin-top: 24px;
+            font-family: 'Courier New', Courier, monospace;
+            color: var(--cad-line);
+            border: 2px solid #1e293b;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+        }
+
+        .cad-title {
+            display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+            gap: 8px; font-size: 0.8rem; margin-bottom: 20px; color: #94a3b8;
+            border-bottom: 1px dashed #334155; padding-bottom: 8px;
+        }
+
+        .cad-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.72rem; }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-color { width: 12px; height: 2px; flex-shrink: 0; }
+
+        .cad-schematic { width: 100%; }
+
+        /* Cota total (arriba) */
+        .cad-dim-total {
+            text-align: center; font-weight: bold;
+            font-size: clamp(0.8rem, 3vw, 0.95rem);
+            margin-bottom: 14px; letter-spacing: 0.3px;
+        }
+        .cad-dim-total b { color: #fff; }
+
+        /* El SVG escala con el contenedor sin producir scroll horizontal */
+        .cad-svg-wrap { width: 100%; margin-bottom: 18px; }
+        .cad-svg-wrap svg { display: block; width: 100%; height: auto; }
+
+        .cad-fit-shape { fill: rgba(56, 189, 248, 0.15); stroke: var(--cad-line); stroke-width: 2; }
+        .cad-fit-shape-line { stroke: var(--cad-line); stroke-width: 2; }
+        .cad-axis-total { fill: none; stroke: var(--cad-axis); stroke-width: 1.5; stroke-dasharray: 4; }
+        .cad-eje-borde-line { fill: none; stroke: var(--cad-eje-borde); stroke-width: 1.5; stroke-dasharray: 4; }
+        .cad-corte-line { fill: none; stroke: var(--cad-corte); stroke-width: 1.5; stroke-dasharray: 4; }
+        .cad-perdida-mark { stroke: var(--cad-perdida); stroke-width: 2.5; }
+        .cad-pipe-label { fill: #fff; font-size: 20px; font-weight: bold; letter-spacing: 2px; font-family: 'Courier New', Courier, monospace; }
+
+        /* Resultados numéricos: grilla que se reacomoda sola según el ancho disponible */
+        .cad-results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+        .cad-result-box {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            padding: 10px 8px;
+            text-align: center;
+        }
+        .cad-result-box.empty { opacity: 0.6; }
+        .cad-result-box.loss { border-color: var(--cad-perdida); }
+        .cad-result-box.main { border-color: var(--cad-corte); background: rgba(74, 222, 128, 0.08); }
+        .cad-result-box .r-label {
+            display: block; font-size: 0.65rem; color: #94a3b8;
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px;
+        }
+        .cad-result-box .r-value { display: block; font-size: 1.05rem; font-weight: bold; color: #fff; }
+        .cad-result-box.loss .r-value { color: var(--cad-perdida); }
+        .cad-result-box.main .r-value { font-size: 1.2rem; color: var(--cad-corte); }
+        .cad-result-box .r-sub { display: block; font-size: 0.62rem; color: #64748b; margin-top: 4px; font-family: monospace; }
+        .cad-result-box .r-sub .eje-val { color: var(--cad-eje-borde); }
+
+        /* ======== Ajustes generales para pantallas pequeñas ======== */
+        @media (max-width: 480px) {
+            body { padding: 10px; }
+            .row { flex-direction: column; gap: 0; }
+            .grid-3 { grid-template-columns: 1fr; }
+            .tab-btn { font-size: 0.85rem; padding: 10px; }
+            .cad-results-grid { grid-template-columns: 1fr; }
+            .cad-result-box.main { order: -1; }
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('view-calc')" id="btn-calc">Calculadora y Plano</button>
+        <button class="tab-btn" onclick="switchTab('view-config')" id="btn-config">Gestor de Tuberías</button>
+    </div>
+
+    <!-- SECCIÓN: Calculadora y CAD -->
+    <div id="view-calc" class="view-section active">
+        <h2>Cálculo de Corte (Eje a Eje)</h2>
+        
+        <div class="form-group">
+            <label for="calc-pipe">Tubería Guardada</label>
+            <select id="calc-pipe"></select>
+        </div>
+
+        <div class="form-group">
+            <label for="calc-length">Distancia Total Eje a Eje (mm)</label>
+            <input type="number" id="calc-length" placeholder="Ej: 1500">
+        </div>
+
+        <div class="row">
+            <div class="form-group">
+                <label for="calc-ext1">Accesorio Izquierdo (Eje 1)</label>
+                <select id="calc-ext1">
+                    <option value="none">Nada (Fin de tubo)</option>
+                    <option value="codo">Codo</option>
+                    <option value="tee_lado">Tee (Paso directo)</option>
+                    <option value="tee_centro">Tee (Derivación)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="calc-ext2">Accesorio Derecho (Eje 2)</label>
+                <select id="calc-ext2">
+                    <option value="none">Nada (Fin de tubo)</option>
+                    <option value="codo">Codo</option>
+                    <option value="tee_lado">Tee (Paso directo)</option>
+                    <option value="tee_centro">Tee (Derivación)</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="action-btn" onclick="calcularCorte()">Generar Plano de Corte</button>
+
+        <!-- VISUALIZADOR CAD -->
+        <div id="cad-viewer" class="cad-viewer">
+            <div class="cad-title">
+                <span>PLANO DE CORTE - MILÍMETROS</span>
+                <div class="cad-legend">
+                    <div class="legend-item"><div class="legend-color" style="background: var(--cad-line);"></div> Pieza/Tubo</div>
+                    <div class="legend-item"><div class="legend-color" style="border-top: 2px dashed var(--cad-axis);"></div> Distancia Ejes</div>
+                    <div class="legend-item"><div class="legend-color" style="border-top: 2px dashed var(--cad-eje-borde);"></div> Eje&rarr;Borde</div>
+                    <div class="legend-item"><div class="legend-color" style="background: var(--cad-perdida);"></div> Pérdida (fondo)</div>
+                    <div class="legend-item"><div class="legend-color" style="border-top: 2px dashed var(--cad-corte);"></div> Largo a Cortar</div>
+                </div>
+            </div>
+            
+            <div class="cad-schematic">
+                <!-- Cota Total -->
+                <div class="cad-dim-total">Distancia Ejes: <b id="cad-txt-total">0</b> mm</div>
+
+                <!-- Esquema (SVG responsive, se genera por JS) -->
+                <div class="cad-svg-wrap" id="cad-svg-wrap"></div>
+
+                <!-- Resultados numéricos (se reordenan/apilan solos en pantallas chicas) -->
+                <div class="cad-results-grid" id="cad-results-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SECCIÓN: Gestor de Tuberías -->
+    <div id="view-config" class="view-section">
+        <h2>Añadir / Editar Tubería</h2>
+        <span class="info-text">Configura cuánto "come" cada accesorio. El descuento se calcula restando la inserción (fondo) de la distancia al eje.</span>
+        
+        <div class="form-group">
+            <label for="config-name">Nombre de la Tubería (Ej: SCH 80 2")</label>
+            <input type="text" id="config-name" placeholder="Ej: SCH 80 2&quot;">
+        </div>
+
+        <div class="grid-3">
+            <div class="grid-col">
+                <label style="color:var(--primary)">Codo</label>
+                <input type="number" id="codo-eje" placeholder="Eje a Borde (mm)">
+                <input type="number" id="codo-fondo" placeholder="Fondo a Borde (mm)">
+            </div>
+            <div class="grid-col">
+                <label style="color:var(--primary)">Tee (Lados)</label>
+                <input type="number" id="teeL-eje" placeholder="Eje a Borde (mm)">
+                <input type="number" id="teeL-fondo" placeholder="Fondo a Borde (mm)">
+            </div>
+            <div class="grid-col">
+                <label style="color:var(--primary)">Tee (Centro)</label>
+                <input type="number" id="teeC-eje" placeholder="Eje a Borde (mm)">
+                <input type="number" id="teeC-fondo" placeholder="Fondo a Borde (mm)">
+            </div>
+        </div>
+
+        <button class="action-btn btn-dark" onclick="guardarTuberia()">Guardar / Actualizar Medidas</button>
+        <div class="saved-pipes" id="saved-list"></div>
+    </div>
+
+</div>
+
+<script>
+    function switchTab(viewId) {
+        document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById(viewId).classList.add('active');
+        if(viewId === 'view-calc') document.getElementById('btn-calc').classList.add('active');
+        else document.getElementById('btn-config').classList.add('active');
+    }
+
+    const defaultPipes = {
+        "SCH 80 1\"": { codo: { eje: 46, fondo: 28 }, tee_lado: { eje: 46, fondo: 28 }, tee_centro: { eje: 46, fondo: 28 } },
+        "PPR 32mm": { codo: { eje: 35, fondo: 18 }, tee_lado: { eje: 35, fondo: 18 }, tee_centro: { eje: 38, fondo: 18 } }
+    };
+
+    let pipings = JSON.parse(localStorage.getItem('pipeDataV2')) || defaultPipes;
+
+    function init() {
+        actualizarSelects();
+        actualizarListaGuardados();
+    }
+
+    function actualizarSelects() {
+        const select = document.getElementById('calc-pipe');
+        const prevValue = select.value;
+        select.innerHTML = '';
+        for (const name of Object.keys(pipings)) {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            select.appendChild(option);
+        }
+        if (prevValue && pipings[prevValue]) select.value = prevValue;
+    }
+
+    function actualizarListaGuardados() {
+        const list = document.getElementById('saved-list');
+        list.innerHTML = '<strong>Base de datos local:</strong><br>' + Object.keys(pipings).join(' &bull; ');
+    }
+
+    function getNum(id) { return parseFloat(document.getElementById(id).value); }
+
+    function guardarTuberia() {
+        const name = document.getElementById('config-name').value.trim();
+        const ce = getNum('codo-eje'), cf = getNum('codo-fondo');
+        const tle = getNum('teeL-eje'), tlf = getNum('teeL-fondo');
+        const tce = getNum('teeC-eje'), tcf = getNum('teeC-fondo');
+
+        if (!name || isNaN(ce) || isNaN(cf) || isNaN(tle) || isNaN(tlf) || isNaN(tce) || isNaN(tcf)) {
+            alert('Por favor completa el nombre y TODAS las 6 medidas numéricas.');
+            return;
+        }
+
+        pipings[name] = {
+            codo: { eje: ce, fondo: cf },
+            tee_lado: { eje: tle, fondo: tlf },
+            tee_centro: { eje: tce, fondo: tcf }
+        };
+        
+        localStorage.setItem('pipeDataV2', JSON.stringify(pipings));
+        document.querySelectorAll('.grid-3 input').forEach(inp => inp.value = '');
+        document.getElementById('config-name').value = '';
+
+        init();
+        alert(`Tubería "${name}" configurada exitosamente.`);
+        switchTab('view-calc');
+    }
+
+    // ==== GENERACIÓN DEL ESQUEMA: un único SVG con viewBox (100% responsive, sin scroll horizontal) ====
+    // Los trazos de cada accesorio se definen en un espacio local de 90x50 y se insertan
+    // dentro de un <g> escalado uniformemente (1.6x) para no distorsionar los grosores de línea.
+    // Cada línea usa un color distinto según lo que representa (ver leyenda):
+    //   rosa (--cad-axis)      -> Distancia Ejes (medida total, arriba de todo)
+    //   ámbar (--cad-eje-borde) -> Medida Eje a Borde (recorrido dentro del accesorio)
+    //   verde (--cad-corte)     -> Largo del tubo a cortar (corte real)
+    //   rosado (--cad-perdida)  -> Distancia perdida en el fondo (unión accesorio-tubo)
+    const LEFT_PATHS = {
+        codo: `<path class="cad-fit-shape" d="M 90 15 L 30 15 L 30 50 L 50 50 L 50 35 L 90 35 Z" /><line class="cad-eje-borde-line" x1="40" y1="50" x2="40" y2="25" /><line class="cad-eje-borde-line" x1="40" y1="25" x2="90" y2="25" />`,
+        tee_lado: `<path class="cad-fit-shape" d="M 90 15 L 10 15 L 10 35 L 30 35 L 30 50 L 50 50 L 50 35 L 90 35 Z" /><line class="cad-eje-borde-line" x1="10" y1="25" x2="90" y2="25" /><line class="cad-eje-borde-line" x1="40" y1="25" x2="40" y2="50" />`,
+        tee_centro: `<path class="cad-fit-shape" d="M 90 15 L 50 15 L 50 0 L 30 0 L 30 50 L 50 50 L 50 35 L 90 35 Z" /><line class="cad-eje-borde-line" x1="40" y1="0" x2="40" y2="50" /><line class="cad-eje-borde-line" x1="40" y1="25" x2="90" y2="25" />`
+    };
+    const RIGHT_PATHS = {
+        codo: `<path class="cad-fit-shape" d="M 0 15 L 60 15 L 60 50 L 40 50 L 40 35 L 0 35 Z" /><line class="cad-eje-borde-line" x1="50" y1="50" x2="50" y2="25" /><line class="cad-eje-borde-line" x1="0" y1="25" x2="50" y2="25" />`,
+        tee_lado: `<path class="cad-fit-shape" d="M 0 15 L 80 15 L 80 35 L 60 35 L 60 50 L 40 50 L 40 35 L 0 35 Z" /><line class="cad-eje-borde-line" x1="0" y1="25" x2="80" y2="25" /><line class="cad-eje-borde-line" x1="50" y1="25" x2="50" y2="50" />`,
+        tee_centro: `<path class="cad-fit-shape" d="M 0 15 L 40 15 L 40 0 L 60 0 L 60 50 L 40 50 L 40 35 L 0 35 Z" /><line class="cad-eje-borde-line" x1="50" y1="0" x2="50" y2="50" /><line class="cad-eje-borde-line" x1="0" y1="25" x2="50" y2="25" />`
+    };
+
+    function buildCadSVG(ext1, ext2) {
+        const VBW = 900, VBH = 140;      // lienzo lógico, escala con el ancho real vía viewBox
+        const FITW = 144, OFFY = 30;      // 90 * 1.6 = 144 (escala uniforme, no distorsiona los trazos)
+        const AXISY = 70;                 // altura del recorrido central
+        const NONE_W = 24;                // ancho reservado cuando un extremo es "Nada"
+        const leftW = ext1 === 'none' ? NONE_W : FITW;
+        const rightW = ext2 === 'none' ? NONE_W : FITW;
+        const pipeX1 = leftW, pipeX2 = VBW - rightW;
+        const pipeY1 = 54, pipeY2 = 86;
+
+        let svg = `<svg viewBox="0 0 ${VBW} ${VBH}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">`;
+
+        // Distancia Ejes (rosa): cota superior que recorre todo el ancho, de eje a eje.
+        svg += `<line class="cad-axis-total" x1="0" y1="14" x2="${VBW}" y2="14" />`;
+        svg += `<line class="cad-axis-total" x1="0" y1="7" x2="0" y2="21" />`;
+        svg += `<line class="cad-axis-total" x1="${VBW}" y1="7" x2="${VBW}" y2="21" />`;
+
+        // Largo del tubo a cortar (verde): recorre exactamente el tramo que se corta.
+        svg += `<line class="cad-corte-line" x1="${pipeX1}" y1="${AXISY}" x2="${pipeX2}" y2="${AXISY}" />`;
+
+        // Relleno y bordes físicos del tubo (celeste = pieza/material)
+        svg += `<rect x="${pipeX1}" y="${pipeY1}" width="${pipeX2 - pipeX1}" height="${pipeY2 - pipeY1}" fill="rgba(56,189,248,0.12)" />`;
+        svg += `<line class="cad-fit-shape-line" x1="${pipeX1}" y1="${pipeY1}" x2="${pipeX2}" y2="${pipeY1}" />`;
+        svg += `<line class="cad-fit-shape-line" x1="${pipeX1}" y1="${pipeY2}" x2="${pipeX2}" y2="${pipeY2}" />`;
+        if (pipeX2 - pipeX1 > 60) {
+            svg += `<text class="cad-pipe-label" x="${(pipeX1 + pipeX2) / 2}" y="${AXISY + 6}" text-anchor="middle">TUBO</text>`;
+        }
+
+        // Distancia perdida en el fondo (rosado): marca corta justo en la unión accesorio-tubo.
+        if (ext1 !== 'none') {
+            svg += `<line class="cad-perdida-mark" x1="${pipeX1 - 22}" y1="122" x2="${pipeX1}" y2="122" />`;
+            svg += `<line class="cad-perdida-mark" x1="${pipeX1 - 22}" y1="117" x2="${pipeX1 - 22}" y2="127" />`;
+            svg += `<line class="cad-perdida-mark" x1="${pipeX1}" y1="117" x2="${pipeX1}" y2="127" />`;
+        }
+        if (ext2 !== 'none') {
+            svg += `<line class="cad-perdida-mark" x1="${pipeX2}" y1="122" x2="${pipeX2 + 22}" y2="122" />`;
+            svg += `<line class="cad-perdida-mark" x1="${pipeX2}" y1="117" x2="${pipeX2}" y2="127" />`;
+            svg += `<line class="cad-perdida-mark" x1="${pipeX2 + 22}" y1="117" x2="${pipeX2 + 22}" y2="127" />`;
+        }
+
+        // extremo izquierdo
+        if (ext1 === 'none') {
+            svg += `<line class="cad-axis-total" x1="${leftW}" y1="${AXISY - 30}" x2="${leftW}" y2="${AXISY + 30}" stroke-width="3" />`;
+        } else {
+            svg += `<g transform="translate(0, ${OFFY}) scale(1.6)">${LEFT_PATHS[ext1]}</g>`;
+        }
+        // extremo derecho
+        if (ext2 === 'none') {
+            svg += `<line class="cad-axis-total" x1="${VBW - rightW}" y1="${AXISY - 30}" x2="${VBW - rightW}" y2="${AXISY + 30}" stroke-width="3" />`;
+        } else {
+            svg += `<g transform="translate(${VBW - FITW}, ${OFFY}) scale(1.6)">${RIGHT_PATHS[ext2]}</g>`;
+        }
+        svg += `</svg>`;
+        return svg;
+    }
+
+    function buildResultBox(label, tipo, info) {
+        if (tipo === 'none') {
+            return `<div class="cad-result-box empty"><span class="r-label">${label}</span><span class="r-value">&mdash;</span><span class="r-sub">Tubo libre</span></div>`;
+        }
+        return `<div class="cad-result-box loss"><span class="r-label">${label} (pérdida)</span><span class="r-value">${info.desc} mm</span><span class="r-sub"><span class="eje-val">Eje ${info.eje}</span> &minus; Fondo ${info.fondo}</span></div>`;
+    }
+
+    function calcularCorte() {
+        const pipeName = document.getElementById('calc-pipe').value;
+        const totalLength = parseFloat(document.getElementById('calc-length').value);
+        const ext1 = document.getElementById('calc-ext1').value;
+        const ext2 = document.getElementById('calc-ext2').value;
+
+        if (isNaN(totalLength) || totalLength <= 0) {
+            alert('Ingresa una distancia total válida.');
+            return;
+        }
+
+        const data = pipings[pipeName];
+        
+        function getInfo(tipo) {
+            if (tipo === 'none') return { desc: 0, eje: 0, fondo: 0 };
+            return {
+                desc: data[tipo].eje - data[tipo].fondo,
+                eje: data[tipo].eje,
+                fondo: data[tipo].fondo
+            };
+        }
+
+        const info1 = getInfo(ext1);
+        const info2 = getInfo(ext2);
+        
+        const corteReal = totalLength - info1.desc - info2.desc;
+
+        if (corteReal <= 0) {
+            alert('Error: Los accesorios descuentan más milímetros de los que mide el tramo total.');
+            document.getElementById('cad-viewer').style.display = 'none';
+            return;
+        }
+
+        renderCAD(ext1, info1, ext2, info2, totalLength, corteReal);
+    }
+
+    function renderCAD(ext1, info1, ext2, info2, total, corte) {
+        document.getElementById('cad-viewer').style.display = 'block';
+
+        document.getElementById('cad-txt-total').innerText = total;
+
+        // El esquema gráfico va en un único SVG con viewBox: escala solo con CSS,
+        // sin necesidad de min-width ni scroll horizontal en pantallas chicas.
+        document.getElementById('cad-svg-wrap').innerHTML = buildCadSVG(ext1, ext2);
+
+        // Los números (los datos realmente importantes) van en una grilla HTML aparte,
+        // que se reacomoda/apila sola según el ancho disponible.
+        const grid = document.getElementById('cad-results-grid');
+        grid.innerHTML =
+            buildResultBox('Descuento Eje 1', ext1, info1) +
+            `<div class="cad-result-box main"><span class="r-label">Corte Real</span><span class="r-value">${corte} mm</span></div>` +
+            buildResultBox('Descuento Eje 2', ext2, info2);
+    }
+
+    init();
+</script>
+
+</body>
+</html>
